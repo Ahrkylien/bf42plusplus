@@ -231,8 +231,10 @@ public:
 #if defined(TRACY_ENABLE)
     BoolSetting profilerAutoStart = {
         L"general", L"profilerAutoStart",
-        L"; Activates profiler automatically."
-        L"; Otherwise needs to be activated using console command Profiler.enable 1",
+        L"; Activates profiler automatically when game reaches main loop.\n"
+        L"; Otherwise needs to be activated using console command Profiler.enable 1\n"
+        L"; NOTE: bf42++_r overrides default profiler with Tracy.\n"
+        L";       Compatibility with consoleProfiler is not guaranteed.",
         0, false };
 #endif
 };

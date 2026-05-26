@@ -411,8 +411,10 @@ void profile_stopTimer()
     MOVE_CODE_AND_ADD_CODE(a, 0x00618545, 6, HOOK_ADD_ORIGINAL_AFTER);
 }
 
-void profile_startGlobalTimer()
+
+void profile_globalTimer()
 {
+//    Profiler::startGlobalTimer
     BEGIN_ASM_CODE(a)
 
         push 0
@@ -422,8 +424,62 @@ void profile_startGlobalTimer()
         mov ecx, esi
 
     MOVE_CODE_AND_ADD_CODE(a, 0x0061A55C, 6, HOOK_ADD_ORIGINAL_AFTER);
-}
 
+
+    static bool profilerStopRequested {};
+
+//    Profiler::setEnable
+//    fix consecutive Tracy captures mid-game
+    BEGIN_ASM_CODE(b)
+
+        mov al, [esp+4]
+        test al, al
+        jnz enabled
+
+        mov byte ptr [ecx+0x24C9], 0 // m_enable
+        mov byte ptr profilerStopRequested, 1
+
+        mov eax, 0x0061A733
+        jmp eax
+
+    enabled:
+        mov byte ptr [ecx+0x24C9], 1 // m_enable
+        mov byte ptr profilerStopRequested, 0
+
+        mov eax, 0x0061A733
+        jmp eax
+
+    MOVE_CODE_AND_ADD_CODE(b, 0x0061A6F5, 6, HOOK_DISCARD_ORIGINAL);
+
+
+    static void* pProfiler;
+
+//    Profiler::stopGlobalTimer (prologue)
+    BEGIN_ASM_CODE(c)
+
+        mov pProfiler, esi
+
+    MOVE_CODE_AND_ADD_CODE(c, 0x00619501, 7, HOOK_ADD_ORIGINAL_AFTER);
+
+
+//    Profiler::stopGlobalTimer (epilogue)
+    BEGIN_ASM_CODE(d)
+
+        cmp byte ptr profilerStopRequested, 0
+        jz passthrough
+
+        mov byte ptr profilerStopRequested, 0
+        mov esi, pProfiler
+        mov byte ptr [esi+0x24C9], 0 // m_enable
+        mov edx, esi
+
+        push eax
+        mov eax, 0x0061A705 // Profiler::setEnable() disable routine
+        call eax
+
+    passthrough:
+    MOVE_CODE_AND_ADD_CODE(d, 0x00619864, 5, HOOK_ADD_ORIGINAL_AFTER);
+}
 
 void profile_main_loop()
 {
@@ -463,7 +519,16 @@ void profile_main_loop()
 
 void profile_game_load()
 {
+//    overwrite calls to:
+//      Profiler::setEnable
+//      Profiler::startGlobalTimer
+//      Profiler::stopGlobalTimer
+
+    static uint32_t timer;
+    static uint32_t timerId = 512;
+
     static const char* frameName = "Game Load";
+    static const char* timerName = "game_load";
 
     BEGIN_ASM_CODE(a)
 
@@ -472,19 +537,36 @@ void profile_game_load()
         call eax
         pop eax
 
-    MOVE_CODE_AND_ADD_CODE(a, 0x0042EAE4, 6, HOOK_ADD_ORIGINAL_AFTER);
+        lea ecx, timerId
+        push ecx
+        push timerName
+        lea ecx, timer
+        mov eax, 0x0049C0F6 // ref2::Profiler::ScopedTimer::ScopedTimer()
+        call eax
+
+        mov eax, 0x0042EB08
+        jmp eax
+
+    MOVE_CODE_AND_ADD_CODE(a, 0x0042EAE4, 6, HOOK_DISCARD_ORIGINAL);
 
 
     BEGIN_ASM_CODE(b)
+
+        lea ecx, timer
+        mov eax, 0x0049C128 // ref2::Profiler::ScopedTimer::~ScopedTimer()
+        call eax
 
         push frameName
         mov eax, ___tracy_emit_frame_mark_end
         call eax
         pop eax
 
-    MOVE_CODE_AND_ADD_CODE(b, 0x0042F876, 5, HOOK_ADD_ORIGINAL_AFTER);
-}
+        mov eax, 0x0042F751
+        jmp eax
 
+//    or move this to 0x0042F876 to include game_loadLightmaps ?
+    MOVE_CODE_AND_ADD_CODE(b, 0x0042F70B, 5, HOOK_DISCARD_ORIGINAL);
+}
 
 void profile_voiceManagerThread()
 {
@@ -540,7 +622,6 @@ void profile_voiceManagerThread()
 void profile_netClientThread()
 {
     static const char* threadName = "NetClientThread";
-
     static const char* zoneName = "NetClientThread::run";
 
 
@@ -707,6 +788,7 @@ void profile_netServerThread()
     MOVE_CODE_AND_ADD_CODE(c, 0x00733C22, 5, HOOK_DISCARD_ORIGINAL);
 
 
+//    zoneNameRun end
     BEGIN_ASM_CODE(d)
 
         mov eax, 0x00642E15 // Win32Mutex::unlock
@@ -728,9 +810,6 @@ void profile_netServerThread()
 void profile_autostart()
 {
     patchBytes(0x00470457, {1}); // Setup::initModules force-enable Profiler
-
-    patchBytes(0x0061A57D, {0x90, 0xE9}); // 0F 84 -> 90 E9 // Profiler::startGlobalTimer skip
-    patchBytes(0x00619508, {0x90, 0xE9}); // 0F 84 -> 90 E9 // Profiler::stopGlobalTimer skip
 }
 
 decltype(std::malloc)* p_malloc_orig = nullptr;
@@ -790,10 +869,10 @@ void attach_profiler()
 
     profile_startTimer();
     profile_stopTimer();
-    profile_startGlobalTimer();
+    profile_globalTimer();
 
-    profile_game_load();
     profile_main_loop();
+    profile_game_load();
 
     profile_voiceManagerThread();
     profile_netClientThread();
