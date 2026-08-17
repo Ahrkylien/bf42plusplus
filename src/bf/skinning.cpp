@@ -135,7 +135,8 @@ int g_lastLod = -1;
 
 void addEquation(SlotFit& fit, const float* offset, const float* position)
 {
-    const double a[4] = { offset[0], offset[1], offset[2], 1.0 };
+    double a[4] { offset[0], offset[1], offset[2], 1.0 };
+
     for (int r = 0; r < 4; r++) {
         for (int c = 0; c < 4; c++) fit.ata[r][c] += a[r] * a[c];
         for (int c = 0; c < 3; c++) fit.atb[r][c] += a[r] * position[c];
@@ -154,7 +155,8 @@ void addEquation(SlotFit& fit, const float* offset, const float* position)
 // Solves the 4x4 normal equations for the affine transform, in doubles for conditioning.
 bool fitAffine(const SlotFit& fit, Matrix& out)
 {
-    if (fit.count < 8) return false;
+    if (fit.count < 8) 
+        return false;
 
     // Gauss-Jordan with partial pivoting on [ata | atb].
     double m[4][7];
@@ -162,38 +164,65 @@ bool fitAffine(const SlotFit& fit, Matrix& out)
         for (int c = 0; c < 4; c++) m[r][c] = fit.ata[r][c];
         for (int c = 0; c < 3; c++) m[r][4 + c] = fit.atb[r][c];
     }
+
     for (int col = 0; col < 4; col++) {
         int pivot = col;
+
         for (int r = col + 1; r < 4; r++)
             if (fabs(m[r][col]) > fabs(m[pivot][col])) pivot = r;
-        if (fabs(m[pivot][col]) < 1e-9) return false;      // degenerate, vertices too collinear
-        if (pivot != col)
-            for (int c = 0; c < 7; c++) { const double t = m[col][c]; m[col][c] = m[pivot][c]; m[pivot][c] = t; }
 
-        const double inv = 1.0 / m[col][col];
-        for (int c = 0; c < 7; c++) m[col][c] *= inv;
+        if (fabs(m[pivot][col]) < 1e-9)
+            return false; // degenerate, vertices too collinear
+
+        if (pivot != col)
+            for (int c = 0; c < 7; c++)
+                std::swap(m[col][c], m[pivot][c]);
+
+        double inv = 1.0 / m[col][col];
+        for (int c = 0; c < 7; c++)
+            m[col][c] *= inv;
+
         for (int r = 0; r < 4; r++) {
-            if (r == col) continue;
-            const double f = m[r][col];
-            for (int c = 0; c < 7; c++) m[r][c] -= f * m[col][c];
+            if (r == col) 
+                continue;
+            
+            double f = m[r][col];
+            for (int c = 0; c < 7; c++)
+                m[r][c] -= f * m[col][c];
         }
     }
 
     for (int r = 0; r < 4; r++) {
-        for (int c = 0; c < 3; c++) out.m[r * 4 + c] = (float)m[r][4 + c];
+        for (int c = 0; c < 3; c++)
+            out.m[r * 4 + c] = (float)m[r][4 + c];
+
         out.m[r * 4 + 3] = (r == 3) ? 1.0f : 0.0f;
     }
 
     // Rigid by construction, so tidy the rotation up before it is inverted as one.
-    float* r0 = out.m; float* r1 = out.m + 4; float* r2 = out.m + 8;
-    const float len0 = sqrtf(r0[0]*r0[0] + r0[1]*r0[1] + r0[2]*r0[2]);
-    if (len0 < 1e-6f) return false;
-    for (int c = 0; c < 3; c++) r0[c] /= len0;
-    const float d1 = r1[0]*r0[0] + r1[1]*r0[1] + r1[2]*r0[2];
-    for (int c = 0; c < 3; c++) r1[c] -= d1 * r0[c];
-    const float len1 = sqrtf(r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2]);
-    if (len1 < 1e-6f) return false;
-    for (int c = 0; c < 3; c++) r1[c] /= len1;
+    float* r0 = out.m;
+    float* r1 = out.m + 4;
+    float* r2 = out.m + 8;
+
+    float len0 = sqrtf(r0[0]*r0[0] + r0[1]*r0[1] + r0[2]*r0[2]);
+    if (len0 < 1e-6f)
+        return false;
+
+    for (int c = 0; c < 3; c++)
+        r0[c] /= len0;
+
+    float d1 = r1[0]*r0[0] + r1[1]*r0[1] + r1[2]*r0[2];
+
+    for (int c = 0; c < 3; c++)
+        r1[c] -= d1 * r0[c];
+
+    float len1 = sqrtf(r1[0]*r1[0] + r1[1]*r1[1] + r1[2]*r1[2]);
+    if (len1 < 1e-6f)
+        return false;
+
+    for (int c = 0; c < 3; c++)
+        r1[c] /= len1;
+
     r2[0] = r0[1]*r1[2] - r0[2]*r1[1];
     r2[1] = r0[2]*r1[0] - r0[0]*r1[2];
     r2[2] = r0[0]*r1[1] - r0[1]*r1[0];
@@ -201,12 +230,16 @@ bool fitAffine(const SlotFit& fit, Matrix& out)
     // Reject the fit unless it actually reproduces known vertices.
     for (unsigned s = 0; s < fit.checkCount; s++) {
         const float* o = fit.check[s].offset;
+
         float error = 0.0f;
+
         for (int c = 0; c < 3; c++) {
-            const float p = o[0] * out.m[c] + o[1] * out.m[4 + c] + o[2] * out.m[8 + c] + out.m[12 + c];
+            float p = o[0] * out.m[c] + o[1] * out.m[4 + c] + o[2] * out.m[8 + c] + out.m[12 + c];
             error += fabsf(p - fit.check[s].position[c]);
         }
-        if (error > 0.01f) return false;
+
+        if (error > 0.01f)
+            return false;
     }
     return true;
 }
@@ -214,7 +247,9 @@ bool fitAffine(const SlotFit& fit, Matrix& out)
 // Bone local offset -> mesh space bind position.
 void rebaseOffset(float* off, const Matrix& bind)
 {
-    const float x = off[0], y = off[1], z = off[2];
+    float x = off[0];
+    float y = off[1]
+    float z = off[2];
     off[0] = x * bind.m[0] + y * bind.m[4] + z * bind.m[8]  + bind.m[12];
     off[1] = x * bind.m[1] + y * bind.m[5] + z * bind.m[9]  + bind.m[13];
     off[2] = x * bind.m[2] + y * bind.m[6] + z * bind.m[10] + bind.m[14];
@@ -230,32 +265,38 @@ void __cdecl onSkinnedVertexBuilt(void* vertex, const void* meshTemplate, int lo
 
     // Only meshes the game itself treats as skinned have usable bone data here.
     const uint8_t* const* sub = (const uint8_t* const*)((const uint8_t*)meshTemplate + 0x298);
-    if (!*sub || *(const int*)(*sub + 0x50) != 1) return;
+
+    if (!*sub || *(const int*)(*sub + 0x50) != 1)
+        return;
 
     if (meshTemplate != g_lastMesh || lod != g_lastLod
-        || v != (const uint8_t*)g_lastVertex + 0x40) {
+        || v != (const uint8_t*)g_lastVertex + 0x40) 
+    {
         g_slotFits.clear();
         // Bind poses from an earlier build of this mesh would be applied to offsets this one has
         // not rebased, so they go with it.
-        const uint64_t first = poseKey(meshTemplate, lod, 0);
+        uint64_t first = poseKey(meshTemplate, lod, 0);
         g_bindPoses.erase(g_bindPoses.lower_bound(first), g_bindPoses.upper_bound(first | 0xFF));
     }
     g_lastMesh = meshTemplate;
     g_lastLod = lod;
     g_lastVertex = v;
 
-    const uint32_t packed = *(const uint32_t*)(v + 0x24);
+    uint32_t packed = *(const uint32_t*)(v + 0x24);
     const float* weights = (const float*)(v + 0x0C);
-    const bool singleInfluence = ((packed >> 8) & 0xFF) < 3 || weights[1] <= 0.0f;
+    bool singleInfluence = ((packed >> 8) & 0xFF) < 3 || weights[1] <= 0.0f;
 
     for (int i = 0; i < 2; i++) {
-        const unsigned code = (packed >> (i * 8)) & 0xFF;
+        unsigned code = (packed >> (i * 8)) & 0xFF;
         // A code below 3 means no bone: it indexes the identity block at c9, so there is nothing
         // to rebase and the mesh space normal is already what the shader wants.
-        if (code < 3) continue;
-        if (i > 0 && weights[i] <= 0.0f) continue;   // unused second influence
+        if (code < 3)
+            continue;
 
-        const uint64_t key = poseKey(meshTemplate, lod, (code - 3) / 3);
+        if (i > 0 && weights[i] <= 0.0f)
+            continue;   // unused second influence
+
+        uint64_t key = poseKey(meshTemplate, lod, (code - 3) / 3);
         SlotFit& fit = g_slotFits[key];
         float* off = (float*)(v + 0x28 + i * 0x0C);
 
@@ -267,29 +308,38 @@ void __cdecl onSkinnedVertexBuilt(void* vertex, const void* meshTemplate, int lo
 
         // Only a single influence vertex gives a clean equation: its mesh position is entirely
         // this bone's doing, so offset * M_bind is exactly the source position.
-        if (i != 0 || !singleInfluence || !sourceVertex) continue;
+        if (i != 0 || !singleInfluence || !sourceVertex)
+            continue;
+
         addEquation(fit, off, sourceVertex);
-        if (fit.count < 8) continue;
+
+        if (fit.count < 8)
+            continue;
 
         Matrix bind;
-        if (!fitAffine(fit, bind)) continue;
+        if (!fitAffine(fit, bind))
+            continue;
 
         // The vertex buffer is locked for the whole build loop, so the offsets already written for
         // this bone are still ours to catch up.
         g_bindPoses[key] = bind;
         fit.solved = true;
-        for (size_t k = 0; k < fit.pending.size(); k++) rebaseOffset(fit.pending[k], bind);
+        for (size_t k = 0; k < fit.pending.size(); k++)
+            rebaseOffset(fit.pending[k], bind);
+
         std::vector<float*>().swap(fit.pending);
     }
 
     // Undo the engine's stray rotation, which is its own inverse, to get a mesh space normal, and
     // renormalize since about half of them do not arrive unit length.
     float* n = (float*)(v + 0x18);
-    const float nx = -n[0], ny = n[2], nz = n[1];
-    const float lengthSquared = nx * nx + ny * ny + nz * nz;
-    if (lengthSquared < 1e-12f) return;
+    float nx = -n[0], ny = n[2], nz = n[1];
+    float lengthSquared = nx * nx + ny * ny + nz * nz;
 
-    const float scale = 1.0f / sqrtf(lengthSquared);
+    if (lengthSquared < 1e-12f)
+        return;
+
+    float scale = 1.0f / sqrtf(lengthSquared);
     n[0] = nx * scale;
     n[1] = ny * scale;
     n[2] = nz * scale;
@@ -300,21 +350,26 @@ void __cdecl onSkinnedVertexBuilt(void* vertex, const void* meshTemplate, int lo
 // matrix so the shader's dp4 works.
 void __cdecl onBoneConstantsReady(float* buffer, int boneCount, const void* meshTemplate, int lod)
 {
-    for (int slot = 0; slot < boneCount; slot++) {
-        const std::map<uint64_t, Matrix>::const_iterator it =
+    for (int slot = 0; slot < boneCount; slot++) 
+    {
+        std::map<uint64_t, Matrix>::const_iterator it =
             g_bindPoses.find(poseKey(meshTemplate, lod, slot));
-        if (it == g_bindPoses.end()) continue;   // nothing was rebased against this slot
+
+        if (it == g_bindPoses.end())
+            continue;   // nothing was rebased against this slot
 
         float* dst = buffer + 12 + slot * 12;
 
-        const float current[16] = {
+        float current[16]
+        {
             dst[0], dst[4], dst[8],  0.0f,
             dst[1], dst[5], dst[9],  0.0f,
             dst[2], dst[6], dst[10], 0.0f,
             dst[3], dst[7], dst[11], 1.0f,
         };
 
-        float inverseBind[16], delta[16];
+        float inverseBind[16];
+        float delta[16];
         rigidInverse(it->second.m, inverseBind);
         multiply(inverseBind, current, delta);
 
