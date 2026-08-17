@@ -248,7 +248,7 @@ bool fitAffine(const SlotFit& fit, Matrix& out)
 void rebaseOffset(float* off, const Matrix& bind)
 {
     float x = off[0];
-    float y = off[1]
+    float y = off[1];
     float z = off[2];
     off[0] = x * bind.m[0] + y * bind.m[4] + z * bind.m[8]  + bind.m[12];
     off[1] = x * bind.m[1] + y * bind.m[5] + z * bind.m[9]  + bind.m[13];
